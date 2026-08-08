@@ -1,0 +1,85 @@
+// ==================== [ KODE LOCK DOMAIN ] ====================
+(function() {
+// Masukkan domain yang boleh mengakses (pisahkan dengan koma)
+const domainIzin = ["mitra-tokopedia.9211ec36-febe-4b9a-a9be-69a61bc635a0.workers.dev", "js-cloude.pages.dev", "localhost", "127.0.0.1"];
+const host = window.location.hostname;
+
+const diizinkan = domainIzin.some(d => host === d || host.endsWith('.' + d));
+
+if (!diizinkan) {
+// Jika dibuka di domain lain, hentikan script & kosongkan halaman
+document.body.innerHTML = "<h1 style='text-align:center;margin-top:50px;'>Server error</h1>";
+throw new Error("Domain Unverified!");
+}
+})();
+// ==============================================================
+
+// --- KODE ASLI ANDA DIMULAI DI BAWAH INI ---
+console.log("Script berhasil berjalan!");
+function sembunyikanLoading() {
+const loader = document.getElementById('loading-awal');
+if (loader) loader.remove();
+document.getElementById('halaman-order').classList.add('siap');
+}
+
+fetch('/api/get-system-code')
+.then(res => res.json())
+.then(data => {
+if (!data.payload) {
+document.getElementById('halaman-order').innerText = "Gagal memuat halaman penjualan.";
+sembunyikanLoading();
+return;
+}
+
+const parser = new DOMParser();
+const docBaru = parser.parseFromString(data.payload, 'text/html');
+
+// 1. Pindahkan aset non-script dari <head> asli
+Array.from(docBaru.head.children).forEach(el => {
+if (el.tagName !== 'SCRIPT') {
+document.head.appendChild(el.cloneNode(true));
+}
+});
+
+// 2. Suntikkan isi <body> asli
+const container = document.getElementById('halaman-order');
+container.innerHTML = docBaru.body.innerHTML;
+
+// 3. Kumpulkan semua script, jalankan satu per satu,
+//dan LACAK kapan semua script eksternal (src) selesai load
+// 3. Kumpulkan semua script, jalankan satu per satu
+const semuaScriptAsli = [
+...docBaru.head.querySelectorAll('script'),
+...docBaru.body.querySelectorAll('script')
+];
+
+const janjiScriptSelesai = semuaScriptAsli.map(oldScript => {
+return new Promise((resolve) => {
+const newScript = document.createElement('script');
+if (oldScript.src) {
+newScript.src = oldScript.src;
+newScript.onload = resolve;
+newScript.onerror = resolve;
+} else {
+newScript.textContent = oldScript.textContent;
+resolve();
+}
+document.body.appendChild(newScript);
+});
+});
+
+// 🔧 TAMBAHAN: jeda minimal spinner tampil, biar tidak "berkedip" kalau proses cepat
+const jedaMinimal = new Promise(resolve => setTimeout(resolve, 500)); // 500ms = 1/2 detik
+
+// 4. Tunggu SEMUA script selesai DAN jeda minimal terpenuhi (mana yang lebih lama)
+Promise.all([...janjiScriptSelesai, jedaMinimal]).then(() => {
+document.dispatchEvent(new Event('DOMContentLoaded', { bubbles: true, cancelable: true }));
+window.dispatchEvent(new Event('load'));
+
+setTimeout(sembunyikanLoading, 150); // tetap dipertahankan, untuk jeda render Tailwind
+});
+})
+.catch(() => {
+document.getElementById('halaman-order').innerText = "Gangguan koneksi sistem.";
+sembunyikanLoading();
+});
